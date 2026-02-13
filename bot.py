@@ -7,6 +7,42 @@ from typing import Dict, List, Tuple
 
 import sqlite3
 
+from aiohttp import web
+from aiogram.exceptions import TelegramBadRequest
+async def start_web_server() -> web.AppRunner:
+    """Мини-вебсервер для Render: чтобы Web Service открыл порт и не падал по port scan."""
+
+    async def health(request: web.Request) -> web.Response:
+        return web.json_response({"status": "ok"})
+
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    logging.info("Starting HTTP health server for Render...")
+    port = int(os.getenv("PORT", "10000"))
+    site = web.TCPSite(runner, host="0.0.0.0", port=port)
+    await site.start()
+
+    logging.info(f"HTTP server started on 0.0.0.0:{port}")
+    return runner
+
+
+# --- Safe callback answer helper ---
+async def safe_callback_answer(callback: CallbackQuery, text: str | None = None, show_alert: bool = False):
+    """Безопасно отвечаем на callback: Telegram может ругаться, если кнопка слишком старая."""
+    try:
+        if text is None:
+            await callback.answer()
+        else:
+            await callback.answer(text, show_alert=show_alert)
+    except TelegramBadRequest:
+        # query is too old / invalid — игнорируем
+        pass
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import (
@@ -351,24 +387,24 @@ async def on_open(callback: CallbackQuery):
 
     game = games.get(key)
     if not game or not game.active:
-        await callback.answer("Игра не найдена или уже завершена.")
+        await safe_callback_answer(callback, "Игра не найдена или уже завершена.")
         return
 
     try:
         idx = int(callback.data.split(":", 1)[1])
     except Exception:
-        await callback.answer("Некорректный ход.")
+        await safe_callback_answer(callback, "Некорректный ход.")
         return
 
     if idx < 0 or idx >= 9:
-        await callback.answer("Некорректный ход.")
+        await safe_callback_answer(callback, "Некорректный ход.")
         return
 
     user_id = callback.from_user.id
     user_name = callback.from_user.full_name
 
     if user_id in game.picked_by_user:
-        await callback.answer("Ты уже выбрал коробку в этой игре.")
+        await safe_callback_answer(callback, "Ты уже выбрал коробку в этой игре.")
         return
 
     game.picked_by_user[user_id] = idx
@@ -403,10 +439,10 @@ async def on_open(callback: CallbackQuery):
         )
     except Exception:
         logging.exception("Failed to edit game message on open")
-        await callback.answer("Ошибка при обновлении игры 😢", show_alert=True)
+        await safe_callback_answer(callback, "Ошибка при обновлении игры 😢", show_alert=True)
         return
 
-    await callback.answer("Принято")
+    await safe_callback_answer(callback, "Принято")
 
 
 @dp.callback_query(F.data == "end")
@@ -420,7 +456,7 @@ async def on_end(callback: CallbackQuery):
 
     game = games.get(key)
     if not game or not game.active:
-        await callback.answer("Игра уже завершена.")
+        await safe_callback_answer(callback, "Игра уже завершена.")
         return
 
     ender_name = callback.from_user.full_name
@@ -447,16 +483,16 @@ async def on_end(callback: CallbackQuery):
         )
     except Exception:
         logging.exception("Failed to edit game message on end")
-        await callback.answer("Ошибка при завершении игры 😢", show_alert=True)
+        await safe_callback_answer(callback, "Ошибка при завершении игры 😢", show_alert=True)
         return
 
-    await callback.answer("Игра завершена")
+    await safe_callback_answer(callback, "Игра завершена")
 
 
 @dp.callback_query(F.data == "noop")
 async def on_noop(callback: CallbackQuery):
     # Ничего не делаем, просто снимаем «часики»
-    await callback.answer()
+    await safe_callback_answer(callback)
 
 
 
@@ -499,18 +535,18 @@ async def duel_ready(callback: CallbackQuery):
     key = (callback.message.chat.id, callback.message.message_id)
     duel = duels.get(key)
     if not duel or not duel.active:
-        await callback.answer("Дуэль недоступна")
+        await safe_callback_answer(callback, "Дуэль недоступна")
         return
 
     user_id = callback.from_user.id
     user_name = callback.from_user.full_name
 
     if user_id in duel.players:
-        await callback.answer("Ты уже готов")
+        await safe_callback_answer(callback, "Ты уже готов")
         return
 
     if len(duel.players) >= 2:
-        await callback.answer("Уже набрано 2 игрока")
+        await safe_callback_answer(callback, "Уже набрано 2 игрока")
         return
 
     duel.players.append(user_id)
@@ -528,7 +564,7 @@ async def duel_ready(callback: CallbackQuery):
     )
 
     if len(duel.players) < 2:
-        await callback.answer("Ждём второго игрока")
+        await safe_callback_answer(callback, "Ждём второго игрока")
         return
 
     # старт первого раунда
@@ -557,21 +593,21 @@ async def duel_open(callback: CallbackQuery):
     user_id = callback.from_user.id
 
     if user_id not in duel.players:
-        await callback.answer("Ты не участвуешь в дуэли")
+        await safe_callback_answer(callback, "Ты не участвуешь в дуэли")
         return
 
     if user_id in duel.picks:
-        await callback.answer("Ты уже сделал выбор")
+        await safe_callback_answer(callback, "Ты уже сделал выбор")
         return
 
     try:
         idx = int(callback.data.split(":")[1])
     except Exception:
-        await callback.answer("Некорректный ход")
+        await safe_callback_answer(callback, "Некорректный ход")
         return
 
     duel.picks[user_id] = idx
-    await callback.answer("Выбор принят")
+    await safe_callback_answer(callback, "Выбор принят")
 
     if len(duel.picks) < 2:
         return
@@ -651,11 +687,17 @@ async def duel_open(callback: CallbackQuery):
 async def on_any_callback(callback: CallbackQuery):
     # Диагностика: если какая-то callback не матчит наши хэндлеры, хотя бы увидим её в логах.
     logging.info(f"Unhandled callback data: {callback.data}")
-    await callback.answer("(кнопка не распознана)")
+    await safe_callback_answer(callback, "(кнопка не распознана)")
 
 async def main():
-    logging.info("Starting bot polling...")
-    await dp.start_polling(bot)
+    runner: web.AppRunner | None = None
+    try:
+        runner = await start_web_server()
+        logging.info("Starting bot polling...")
+        await dp.start_polling(bot)
+    finally:
+        if runner is not None:
+            await runner.cleanup()
 
 
 if __name__ == "__main__":
