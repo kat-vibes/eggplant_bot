@@ -1,19 +1,72 @@
-aiofiles==25.1.0
-aiogram==3.25.0
-aiohappyeyeballs==2.6.1
-aiohttp==3.13.3
-aiohttp-jinja2==1.6
-aiosignal==1.4.0
-annotated-types==0.7.0
-attrs==25.4.0
-certifi==2026.1.4
-frozenlist==1.8.0
-idna==3.11
-magic-filter==1.0.12
-multidict==6.7.1
-propcache==0.4.1
-pydantic==2.12.5
-pydantic_core==2.41.5
-typing-inspection==0.4.2
-typing_extensions==4.15.0
-yarl==1.22.0
+import asyncio
+import logging
+import os
+
+from aiohttp import web
+from aiogram import Bot, Dispatcher, F
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import Command, CommandStart
+from aiogram.types import CallbackQuery, Message, User
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+# ... other imports and code ...
+
+async def safe_callback_answer(callback: CallbackQuery, text: str | None = None, show_alert: bool = False):
+    """Безопасно отвечаем на callback: Telegram может ругаться, если кнопка слишком старая."""
+    try:
+        if text is None:
+            await callback.answer()
+        else:
+            await callback.answer(text, show_alert=show_alert)
+    except TelegramBadRequest:
+        # query is too old / invalid — игнорируем
+        pass
+
+# ... existing helper functions ...
+
+@dp.callback_query(F.data == "open")
+async def on_open(callback: CallbackQuery):
+    # ... some code ...
+    await safe_callback_answer(callback, "Игра не найдена или уже завершена.")
+    # ... other code ...
+    # Replace all other await callback.answer(...) inside on_open with await safe_callback_answer(callback, ...)
+
+# ... other handlers ...
+
+async def start_web_server() -> web.AppRunner:
+    """Мини-вебсервер для Render Web Service: чтобы сервис открыл порт и не падал по port scan."""
+
+    async def health(request: web.Request) -> web.Response:
+        return web.json_response({"status": "ok"})
+
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    port = int(os.getenv("PORT", "10000"))
+    site = web.TCPSite(runner, host="0.0.0.0", port=port)
+    await site.start()
+
+    logging.info(f"HTTP server started on 0.0.0.0:{port}")
+    return runner
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+
+    runner: web.AppRunner | None = None
+    try:
+        runner = await start_web_server()
+        logging.info("Starting bot polling...")
+        await dp.start_polling(bot)
+    finally:
+        if runner is not None:
+            await runner.cleanup()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.error("Bot stopped!")
