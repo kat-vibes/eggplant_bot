@@ -5,7 +5,6 @@ import random
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
-import sqlite3
 
 from aiohttp import web
 from aiogram.exceptions import TelegramBadRequest
@@ -112,72 +111,6 @@ games: Dict[Tuple[int, int], GameState] = {}
 # -------------------- DUELS STORAGE --------------------
 duels: Dict[Tuple[int, int], DuelState] = {}
 
-# -------------------- SQLite база данных --------------------
-conn = sqlite3.connect("bot.db")
-conn.row_factory = sqlite3.Row
-cursor = conn.cursor()
-
-cursor.execute(
-    """
-    CREATE TABLE IF NOT EXISTS user_stats (
-        chat_id INTEGER,
-        user_id INTEGER,
-        games_participated INTEGER DEFAULT 0,
-        games_finished INTEGER DEFAULT 0,
-        eggplant INTEGER DEFAULT 0,
-        gold INTEGER DEFAULT 0,
-        empty INTEGER DEFAULT 0,
-        duels_played INTEGER DEFAULT 0,
-        duels_won INTEGER DEFAULT 0,
-        duels_lost INTEGER DEFAULT 0,
-        PRIMARY KEY (chat_id, user_id)
-    )
-    """
-)
-conn.commit()
-
-# Миграция: добавляем колонки, если база уже существовала
-for col, ddl in [
-    ("duels_played", "ALTER TABLE user_stats ADD COLUMN duels_played INTEGER DEFAULT 0"),
-    ("duels_won", "ALTER TABLE user_stats ADD COLUMN duels_won INTEGER DEFAULT 0"),
-    ("duels_lost", "ALTER TABLE user_stats ADD COLUMN duels_lost INTEGER DEFAULT 0"),
-]:
-    try:
-        cursor.execute(ddl)
-        conn.commit()
-    except sqlite3.OperationalError:
-        # колонка уже существует
-        pass
-
-
-def get_user_stats(chat_id: int, user_id: int) -> sqlite3.Row:
-    cursor.execute(
-        "SELECT * FROM user_stats WHERE chat_id = ? AND user_id = ?",
-        (chat_id, user_id),
-    )
-    row = cursor.fetchone()
-    if row:
-        return row
-
-    cursor.execute(
-        "INSERT INTO user_stats (chat_id, user_id) VALUES (?, ?)",
-        (chat_id, user_id),
-    )
-    conn.commit()
-
-    cursor.execute(
-        "SELECT * FROM user_stats WHERE chat_id = ? AND user_id = ?",
-        (chat_id, user_id),
-    )
-    return cursor.fetchone()
-
-
-def update_user_stat(chat_id: int, user_id: int, field: str, value: int):
-    cursor.execute(
-        f"UPDATE user_stats SET {field} = {field} + ? WHERE chat_id = ? AND user_id = ?",
-        (value, chat_id, user_id),
-    )
-    conn.commit()
 
 
 # -------------------- Генерация поля --------------------
@@ -324,45 +257,9 @@ async def start_web_server() -> web.AppRunner:
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
-    await message.answer("Бот работает 🚀\nКоманда игры: /game")
+    await message.answer("Бот работает 🚀\nКоманды: /game, /duel")
 
 
-@dp.message(Command("stats"))
-async def stats_handler(message: Message):
-    if not message.from_user:
-        return
-
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-
-    s = get_user_stats(chat_id, user_id)
-
-    total_picks = int(s["eggplant"]) + int(s["gold"]) + int(s["empty"])
-
-    def pct(part: int, whole: int) -> str:
-        if whole <= 0:
-            return "0%"
-        return f"{round(part * 100 / whole)}%"
-
-    egg = int(s["eggplant"])
-    gold = int(s["gold"])
-    emp = int(s["empty"])
-
-    duels_played = int(s["duels_played"])
-    duels_won = int(s["duels_won"])
-    duels_lost = int(s["duels_lost"])
-
-    await message.answer(
-        "Твоя статистика в этом чате:\n\n"
-        "Обычная игра (по всем играм):\n"
-        f"— {TXT_EGGPLANT} {EGGPLANT_EMOJI}: {egg} ({pct(egg, total_picks)})\n"
-        f"— {TXT_GOLD} {GOLD_BANANA_EMOJI}: {gold} ({pct(gold, total_picks)})\n"
-        f"— пусто {AIR_EMOJI}: {emp} ({pct(emp, total_picks)})\n\n"
-        "Дуэли:\n"
-        f"— сыграно: {duels_played}\n"
-        f"— выиграно: {duels_won} ({pct(duels_won, duels_played)})\n"
-        f"— проиграно: {duels_lost} ({pct(duels_lost, duels_played)})"
-    )
 
 
 @dp.message(Command("game"))
@@ -421,18 +318,7 @@ async def on_open(callback: CallbackQuery):
         return
 
     game.picked_by_user[user_id] = idx
-    get_user_stats(chat_id, user_id)
-    update_user_stat(chat_id, user_id, "games_participated", 1)
-
     cell = game.board[idx]
-
-    # Считаем находку сразу, даже если игра не завершена
-    if cell == "eggplant":
-        update_user_stat(chat_id, user_id, "eggplant", 1)
-    elif cell == "gold":
-        update_user_stat(chat_id, user_id, "gold", 1)
-    else:
-        update_user_stat(chat_id, user_id, "empty", 1)
 
     # Лог в общий чат
     if cell == "gold":
@@ -475,14 +361,7 @@ async def on_end(callback: CallbackQuery):
     ender_name = callback.from_user.full_name
     game.log.append(f"Игра окончена — {ender_name} окончил игру")
 
-    stats = count_game_stats(game)
-
-    # Removed chat_stat updates as per instructions
-
-    # Обновляем личную статистику игроков
-    for uid, chosen_idx in game.picked_by_user.items():
-        get_user_stats(chat_id, uid)
-        update_user_stat(chat_id, uid, "games_finished", 1)
+    # Removed stats and personal stat updates as per instructions
 
     game.active = False
     game.opened = [True] * 9
@@ -635,15 +514,6 @@ async def duel_open(callback: CallbackQuery):
         # начисляем очки
         duel.scores[uid] += POINTS[cell]
 
-        # --- обновляем личную статистику по находкам (как в обычной игре) ---
-        get_user_stats(duel.chat_id, uid)
-        if cell == "eggplant":
-            update_user_stat(duel.chat_id, uid, "eggplant", 1)
-        elif cell == "gold":
-            update_user_stat(duel.chat_id, uid, "gold", 1)
-        else:
-            update_user_stat(duel.chat_id, uid, "empty", 1)
-
         name = duel.player_names.get(uid, str(uid))
         log_lines.append(f"{name} нашёл {cell_to_text(cell)} {cell_to_emoji(cell)} (+{POINTS[cell]})")
 
@@ -667,19 +537,9 @@ async def duel_open(callback: CallbackQuery):
         p1, p2 = duel.players
         s1, s2 = duel.scores[p1], duel.scores[p2]
 
-        # Обновляем статистику дуэлей в БД (считаем дуэль даже если ничья)
-        get_user_stats(duel.chat_id, p1)
-        get_user_stats(duel.chat_id, p2)
-        update_user_stat(duel.chat_id, p1, "duels_played", 1)
-        update_user_stat(duel.chat_id, p2, "duels_played", 1)
-
         if s1 > s2:
-            update_user_stat(duel.chat_id, p1, "duels_won", 1)
-            update_user_stat(duel.chat_id, p2, "duels_lost", 1)
             winner_text = f"Победил {duel.player_names[p1]}"
         elif s2 > s1:
-            update_user_stat(duel.chat_id, p2, "duels_won", 1)
-            update_user_stat(duel.chat_id, p1, "duels_lost", 1)
             winner_text = f"Победил {duel.player_names[p2]}"
         else:
             winner_text = "Ничья"
