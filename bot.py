@@ -9,26 +9,16 @@ import sqlite3
 
 from aiohttp import web
 from aiogram.exceptions import TelegramBadRequest
-async def start_web_server() -> web.AppRunner:
-    """Мини-вебсервер для Render: чтобы Web Service открыл порт и не падал по port scan."""
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-    async def health(request: web.Request) -> web.Response:
-        return web.json_response({"status": "ok"})
-
-    app = web.Application()
-    app.router.add_get("/", health)
-    app.router.add_get("/health", health)
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-
-    logging.info("Starting HTTP health server for Render...")
-    port = int(os.getenv("PORT", "10000"))
-    site = web.TCPSite(runner, host="0.0.0.0", port=port)
-    await site.start()
-
-    logging.info(f"HTTP server started on 0.0.0.0:{port}")
-    return runner
 
 
 # --- Safe callback answer helper ---
@@ -42,15 +32,6 @@ async def safe_callback_answer(callback: CallbackQuery, text: str | None = None,
     except TelegramBadRequest:
         # query is too old / invalid — игнорируем
         pass
-
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
 
 # -------------------- Конфиг --------------------
 BOX = "📦"
@@ -303,10 +284,42 @@ TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("Не задан BOT_TOKEN. Запусти так: BOT_TOKEN=... python bot.py")
 
-logging.basicConfig(level=logging.INFO, force=True)
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+if not WEBHOOK_URL:
+    raise RuntimeError(
+        "Не задан WEBHOOK_URL. Добавь его в Render Environment: https://eggplant-bot.onrender.com/webhook"
+    )
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
+# --- HTTP server for Render + Webhook endpoint ---
+async def start_web_server() -> web.AppRunner:
+    """Aiohttp-сервер для Render + endpoint для Telegram webhook."""
+
+    async def health(request: web.Request) -> web.Response:
+        return web.json_response({"status": "ok"})
+
+    app = web.Application()
+
+    # --- Webhook endpoint for Telegram ---
+    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
+    setup_application(app, dp, bot=bot)
+
+    # Health routes
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    logging.info("Starting HTTP server for Render...")
+    port = int(os.getenv("PORT", "10000"))
+    site = web.TCPSite(runner, host="0.0.0.0", port=port)
+    await site.start()
+
+    logging.info(f"HTTP server started on 0.0.0.0:{port}")
+    return runner
 
 
 @dp.message(Command("start"))
@@ -690,12 +703,25 @@ async def on_any_callback(callback: CallbackQuery):
     await safe_callback_answer(callback, "(кнопка не распознана)")
 
 async def main():
+    logging.basicConfig(level=logging.INFO, force=True)
+
     runner: web.AppRunner | None = None
     try:
+        # Tell Telegram where to send updates
+        await bot.set_webhook(WEBHOOK_URL)
+        logging.info(f"Webhook set to: {WEBHOOK_URL}")
+
+        # Start aiohttp server (Render port)
         runner = await start_web_server()
-        logging.info("Starting bot polling...")
-        await dp.start_polling(bot)
+
+        # Keep process alive forever
+        await asyncio.Event().wait()
+
     finally:
+        try:
+            await bot.delete_webhook(drop_pending_updates=False)
+        except Exception:
+            pass
         if runner is not None:
             await runner.cleanup()
 
