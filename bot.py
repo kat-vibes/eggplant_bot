@@ -631,7 +631,19 @@ async def duel_open(callback: CallbackQuery):
     for uid in duel.players:
         chosen_idx = duel.picks[uid]
         cell = duel.board[chosen_idx]
+
+        # начисляем очки
         duel.scores[uid] += POINTS[cell]
+
+        # --- обновляем личную статистику по находкам (как в обычной игре) ---
+        get_user_stats(duel.chat_id, uid)
+        if cell == "eggplant":
+            update_user_stat(duel.chat_id, uid, "eggplant", 1)
+        elif cell == "gold":
+            update_user_stat(duel.chat_id, uid, "gold", 1)
+        else:
+            update_user_stat(duel.chat_id, uid, "empty", 1)
+
         name = duel.player_names.get(uid, str(uid))
         log_lines.append(f"{name} нашёл {cell_to_text(cell)} {cell_to_emoji(cell)} (+{POINTS[cell]})")
 
