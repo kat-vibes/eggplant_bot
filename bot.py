@@ -15,6 +15,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
+    ChatMemberUpdated,
 )
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
@@ -257,7 +258,22 @@ async def start_web_server() -> web.AppRunner:
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
-    await message.answer("Привет! Я игровой бот для вашего чата \n Добавь меня в группу и посмотри на что я способен 🍆 \n Команды: /game, /duel \n Прошу обратить внимание, что я нахожусь в БЕТА-версии и могу немного тупить \n По всем вопросам прошу обращаться к @frozensolid ")
+    await message.answer("Привет! Я игровой бот для вашего чата\nДобавь меня в группу и посмотри на что я способен 🍆\nКоманды: /game, /duel\nПрошу обратить внимание, что я нахожусь в БЕТА-версии и могу немного тупить\nПо всем вопросам прошу обращаться к @frozensolid ")
+
+
+
+# Handler: welcome message when bot is added to a group
+@dp.message(F.new_chat_members)
+async def bot_added_to_group(message: Message):
+    # Проверяем, добавили ли именно этого бота
+    for member in message.new_chat_members:
+        if member.id == bot.id:
+            await message.answer(
+                "🍆 Спасибо, что добавили меня в группу!\n\n"
+                "🎮 /game — запустить игру\n"
+                "⚔️ /duel — дуэль 1 на 1\n\n"
+                "Готов проверить вашу удачу? 😈"
+            )
 
 
 
