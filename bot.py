@@ -257,7 +257,7 @@ async def start_web_server() -> web.AppRunner:
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
-    await message.answer("Бот работает 🚀\nКоманды: /game, /duel")
+    await message.answer("Привет! Я игровой бот для вашего чата \n Добавь меня в группу и посмотри на что я способен 🍆 \n Команды: /game, /duel \n Прошу обратить внимание, что я нахожусь в БЕТА-версии и могу немного тупить \n По всем вопросам прошу обращаться к @frozensolid ")
 
 
 
