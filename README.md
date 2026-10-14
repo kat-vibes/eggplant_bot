@@ -14,7 +14,6 @@ The user interface is in Russian. Documentation is in English.
 
 ## How to play
 
-- `/start` or `/help`: show instructions.
 - `/game`: create a board. Each participant gets one pick. Different players
   may choose the same box. Picks are reported in the chat; boxes stay hidden
   until a participant presses the end-game button. Any participant can end it.
