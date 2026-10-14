@@ -31,41 +31,6 @@ per board, giving an average probability of 2.5%.
 
 Requires Python 3.10 or newer and a Telegram bot token.
 
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-cp .env.example .env
-```
-
-Fill in `BOT_TOKEN` in your local `.env`, leave `WEBHOOK_URL` empty, then run:
-
-```sh
-set -a
-source .env
-set +a
-python bot.py
-```
-
-The application reads environment variables; it does not automatically load
-`.env`. Keep `.env` local. Polling requires no public web server. Run only one
-bot instance per token. Starting polling removes the existing webhook.
-
-## Webhook deployment
-
-For a service such as Render:
-
-- Build command: `pip install -r requirements.txt`
-- Start command: `python bot.py`
-- Set `BOT_TOKEN`, `WEBHOOK_URL=https://YOUR-HOST/webhook` and `WEBHOOK_SECRET`
-  in the service environment. Choose a random secret containing letters,
-  digits, underscores or hyphens. It must be 1–256 characters long.
-- The application binds to `0.0.0.0` using `PORT` (default: `10000`).
-- `/` and `/health` return `{"status": "ok"}` while the web server is running.
-
-Telegram requests are authenticated using the webhook secret header. The
-health endpoint checks the web server, not Telegram connectivity.
-
 ## Code structure
 
 ```text
@@ -76,24 +41,7 @@ tests/              Offline game and handler tests
 requirements.txt    Direct application dependencies
 ```
 
-Game rules do not import aiogram or require a bot token. Handlers serialize
-updates per message to avoid overlapping edits and scoring. Duel callbacks
-include the round number so delayed clicks cannot become next-round picks.
 
-## Tests
-
-```sh
-python -m unittest discover -s tests -v
-```
-
-Tests run offline without contacting Telegram. They cover board invariants,
-invalid and duplicate moves, stale callbacks, scoring and three-round duels.
-
-## Limitations
-
-- State is held in memory and lost on restart. Run a single process/replica.
-- Sessions expire after one hour of inactivity; old buttons then ask players
-  to start a new game. Completed sessions are removed immediately.
 - There is no persistent leaderboard, database or account system.
 - Chat logs display recent results to stay within Telegram message limits.
 
