@@ -161,7 +161,10 @@ async def process_callback(callback, bot, key):
         except (ValueError, IndexError):
             raise ValueError("Некорректный ход")
         cell = game.pick(uid, index)
-        game.log.append(f"{name} нашёл {LABELS[cell]} {EMOJI[cell]}")
+        if cell == "empty":
+            game.log.append(f"{name} открыл пустую коробку {EMOJI[cell]}")
+        else:
+            game.log.append(f"{name} нашёл {LABELS[cell]} {EMOJI[cell]}")
         updated[key] = time.monotonic()
         await bot.edit_message_text(chat_id=chat_id, message_id=message_id,
             text=game_text(game), reply_markup=keyboard(game.board))
@@ -196,7 +199,12 @@ async def process_callback(callback, bot, key):
         lines = [f"Раунд {duel.round_number}/{DUEL_ROUNDS}"]
         for player, player_name in duel.players.items():
             cell = duel.board[duel.picks[player]]
-            lines.append(f"{player_name} нашёл {LABELS[cell]} {EMOJI[cell]} (+{POINTS[cell]})")
+            if cell == "empty":
+                lines.append(f"{player_name} открыл пустую коробку {EMOJI[cell]} (+0)")
+            else:
+                lines.append(
+                    f"{player_name} нашёл {LABELS[cell]} {EMOJI[cell]} (+{POINTS[cell]})"
+                )
         lines.append(scoreboard(duel))
         await bot.edit_message_text(chat_id=chat_id, message_id=message_id,
             text="\n".join(lines), reply_markup=keyboard(duel.board, True, duel.round_number))
