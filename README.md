@@ -41,9 +41,3 @@ tests/              Offline game and handler tests
 requirements.txt    Direct application dependencies
 ```
 
-
-- There is no persistent leaderboard, database or account system.
-- Chat logs display recent results to stay within Telegram message limits.
-
-The original local virtual environment and unused SQLite database are not
-application dependencies and must not be included in the published source.
