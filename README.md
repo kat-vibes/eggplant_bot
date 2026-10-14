@@ -6,6 +6,12 @@ game and a three-round duel with automatic scoring.
 
 The user interface is in Russian. Documentation is in English.
 
+## Demo
+
+[Try the bot on Telegram](https://t.me/FindEggplant_bot)
+
+![Eggplant Hunt gameplay](game-demo.png)
+
 ## How to play
 
 - `/start` or `/help`: show instructions.
